@@ -1,5 +1,10 @@
-from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel, Field
+from fastapi import Depends, FastAPI, HTTPException
+from pydantic import BaseModel, ConfigDict, Field
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from database import SessionLocal
+from models import TaskModel
 
 app = FastAPI()
 
@@ -16,21 +21,27 @@ class TaskUpdate(BaseModel):
 
 
 class Task(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     title: str
     description: str | None = None
     completed: bool = False
 
 
-tasks: list[Task] = []
-next_id = 1
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
 
 
-def find_task(task_id: int) -> Task:
-    for task in tasks:
-        if task.id == task_id:
-            return task
-    raise HTTPException(status_code=404, detail="Task not found")
+def find_task(db: Session, task_id: int) -> TaskModel:
+    task = db.get(TaskModel, task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail="Task not found")
+    return task
 
 
 @app.get("/health")
@@ -39,34 +50,39 @@ def health_check():
 
 
 @app.post("/tasks", response_model=Task, status_code=201)
-def create_task(payload: TaskCreate):
-    global next_id
-    task = Task(id=next_id, title=payload.title, description=payload.description)
-    tasks.append(task)
-    next_id += 1
+def create_task(payload: TaskCreate, db: Session = Depends(get_db)):
+    task = TaskModel(title=payload.title, description=payload.description)
+    db.add(task)
+    db.commit()
+    db.refresh(task)
     return task
 
 
 @app.get("/tasks", response_model=list[Task])
-def list_tasks():
-    return tasks
+def list_tasks(db: Session = Depends(get_db)):
+    return db.scalars(select(TaskModel).order_by(TaskModel.id)).all()
 
 
 @app.get("/tasks/{task_id}", response_model=Task)
-def get_task(task_id: int):
-    return find_task(task_id)
+def get_task(task_id: int, db: Session = Depends(get_db)):
+    return find_task(db, task_id)
 
 
 @app.patch("/tasks/{task_id}", response_model=Task)
-def update_task(task_id: int, payload: TaskUpdate):
-    task = find_task(task_id)
+def update_task(task_id: int, payload: TaskUpdate, db: Session = Depends(get_db)):
+    task = find_task(db, task_id)
     updates = payload.model_dump(exclude_unset=True)
+    if "title" in updates and updates["title"] is None:
+        raise HTTPException(status_code=422, detail="title cannot be null")
     for field, value in updates.items():
         setattr(task, field, value)
+    db.commit()
+    db.refresh(task)
     return task
 
 
 @app.delete("/tasks/{task_id}", status_code=204)
-def delete_task(task_id: int):
-    task = find_task(task_id)
-    tasks.remove(task)
+def delete_task(task_id: int, db: Session = Depends(get_db)):
+    task = find_task(db, task_id)
+    db.delete(task)
+    db.commit()
