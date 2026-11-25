@@ -80,8 +80,12 @@ def get_current_user(
     return user
 
 
-def find_task(db: Session, task_id: int) -> TaskModel:
-    task = db.get(TaskModel, task_id)
+def find_task(db: Session, task_id: int, user: UserModel) -> TaskModel:
+    task = db.scalar(
+        select(TaskModel).where(
+            TaskModel.id == task_id, TaskModel.owner_id == user.id
+        )
+    )
     if task is None:
         raise HTTPException(status_code=404, detail="Task not found")
     return task
@@ -93,8 +97,16 @@ def health_check():
 
 
 @app.post("/tasks", response_model=Task, status_code=201)
-def create_task(payload: TaskCreate, db: Session = Depends(get_db)):
-    task = TaskModel(title=payload.title, description=payload.description)
+def create_task(
+    payload: TaskCreate,
+    db: Session = Depends(get_db),
+    current_user: UserModel = Depends(get_current_user),
+):
+    task = TaskModel(
+        title=payload.title,
+        description=payload.description,
+        owner_id=current_user.id,
+    )
     db.add(task)
     db.commit()
     db.refresh(task)
@@ -102,18 +114,34 @@ def create_task(payload: TaskCreate, db: Session = Depends(get_db)):
 
 
 @app.get("/tasks", response_model=list[Task])
-def list_tasks(db: Session = Depends(get_db)):
-    return db.scalars(select(TaskModel).order_by(TaskModel.id)).all()
+def list_tasks(
+    db: Session = Depends(get_db),
+    current_user: UserModel = Depends(get_current_user),
+):
+    return db.scalars(
+        select(TaskModel)
+        .where(TaskModel.owner_id == current_user.id)
+        .order_by(TaskModel.id)
+    ).all()
 
 
 @app.get("/tasks/{task_id}", response_model=Task)
-def get_task(task_id: int, db: Session = Depends(get_db)):
-    return find_task(db, task_id)
+def get_task(
+    task_id: int,
+    db: Session = Depends(get_db),
+    current_user: UserModel = Depends(get_current_user),
+):
+    return find_task(db, task_id, current_user)
 
 
 @app.patch("/tasks/{task_id}", response_model=Task)
-def update_task(task_id: int, payload: TaskUpdate, db: Session = Depends(get_db)):
-    task = find_task(db, task_id)
+def update_task(
+    task_id: int,
+    payload: TaskUpdate,
+    db: Session = Depends(get_db),
+    current_user: UserModel = Depends(get_current_user),
+):
+    task = find_task(db, task_id, current_user)
     updates = payload.model_dump(exclude_unset=True)
     if "title" in updates and updates["title"] is None:
         raise HTTPException(status_code=422, detail="title cannot be null")
@@ -125,8 +153,12 @@ def update_task(task_id: int, payload: TaskUpdate, db: Session = Depends(get_db)
 
 
 @app.delete("/tasks/{task_id}", status_code=204)
-def delete_task(task_id: int, db: Session = Depends(get_db)):
-    task = find_task(db, task_id)
+def delete_task(
+    task_id: int,
+    db: Session = Depends(get_db),
+    current_user: UserModel = Depends(get_current_user),
+):
+    task = find_task(db, task_id, current_user)
     db.delete(task)
     db.commit()
 
