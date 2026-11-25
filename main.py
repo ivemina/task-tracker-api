@@ -1,10 +1,11 @@
 from fastapi import Depends, FastAPI, HTTPException
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from database import SessionLocal
-from models import TaskModel
+from models import TaskModel, UserModel
+from security import hash_password
 
 app = FastAPI()
 
@@ -27,6 +28,18 @@ class Task(BaseModel):
     title: str
     description: str | None = None
     completed: bool = False
+
+
+class UserCreate(BaseModel):
+    email: EmailStr
+    password: str = Field(min_length=8, max_length=128)
+
+
+class UserRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    email: EmailStr
 
 
 def get_db():
@@ -86,3 +99,16 @@ def delete_task(task_id: int, db: Session = Depends(get_db)):
     task = find_task(db, task_id)
     db.delete(task)
     db.commit()
+
+
+@app.post("/users", response_model=UserRead, status_code=201)
+def register_user(payload: UserCreate, db: Session = Depends(get_db)):
+    email = payload.email.lower()
+    existing = db.scalar(select(UserModel).where(UserModel.email == email))
+    if existing is not None:
+        raise HTTPException(status_code=409, detail="Email already registered")
+    user = UserModel(email=email, hashed_password=hash_password(payload.password))
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    return user
