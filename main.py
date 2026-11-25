@@ -1,13 +1,21 @@
 from fastapi import Depends, FastAPI, HTTPException
+from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from database import SessionLocal
 from models import TaskModel, UserModel
-from security import hash_password
+from security import (
+    create_access_token,
+    decode_access_token,
+    hash_password,
+    verify_password,
+)
 
 app = FastAPI()
+
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="login")
 
 
 class TaskCreate(BaseModel):
@@ -42,12 +50,34 @@ class UserRead(BaseModel):
     email: EmailStr
 
 
+class Token(BaseModel):
+    access_token: str
+    token_type: str
+
+
 def get_db():
     db = SessionLocal()
     try:
         yield db
     finally:
         db.close()
+
+
+def get_current_user(
+    token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)
+) -> UserModel:
+    credentials_error = HTTPException(
+        status_code=401,
+        detail="Invalid or expired token",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+    user_id = decode_access_token(token)
+    if user_id is None:
+        raise credentials_error
+    user = db.get(UserModel, user_id)
+    if user is None:
+        raise credentials_error
+    return user
 
 
 def find_task(db: Session, task_id: int) -> TaskModel:
@@ -112,3 +142,22 @@ def register_user(payload: UserCreate, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(user)
     return user
+
+
+@app.post("/login", response_model=Token)
+def login(
+    form: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)
+):
+    user = db.scalar(select(UserModel).where(UserModel.email == form.username.lower()))
+    if user is None or not verify_password(form.password, user.hashed_password):
+        raise HTTPException(
+            status_code=401,
+            detail="Incorrect email or password",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    return Token(access_token=create_access_token(user.id), token_type="bearer")
+
+
+@app.get("/users/me", response_model=UserRead)
+def read_me(current_user: UserModel = Depends(get_current_user)):
+    return current_user
