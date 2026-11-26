@@ -1,5 +1,8 @@
 ![CI](https://github.com/ivemina/task-tracker-api/actions/workflows/ci.yml/badge.svg)
 
+**Live demo:** https://task-tracker-api-nmqs.onrender.com/docs 
+(Free hosting: the first request after inactivity can take about a minute, and the demo database expires after 30 days.)
+
 # Task Tracker API
 
 A REST API for managing personal to-do tasks. Users register, log in and manage their own tasks, and no user can see or change another user's tasks.
@@ -123,4 +126,4 @@ pytest -v
 - No rate limiting on login.
 - Access tokens expire after 30 minutes, and there are no refresh tokens.
 - CI doesn't yet test the migrations.
-- Not deployed yet.
+- Deployed on a free host with a temporary database
