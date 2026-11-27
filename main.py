@@ -3,7 +3,8 @@ from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
-
+import os
+from fastapi.middleware.cors import CORSMiddleware
 from database import SessionLocal
 from models import TaskModel, UserModel
 from security import (
@@ -14,6 +15,17 @@ from security import (
 )
 
 app = FastAPI()
+allowed_origins = [
+    origin.strip()
+    for origin in os.getenv("CORS_ORIGINS", "http://localhost:5173").split(",")
+]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=allowed_origins,
+    allow_methods=["GET", "POST", "PATCH", "DELETE"],
+    allow_headers=["Authorization", "Content-Type"],
+)
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="login")
 

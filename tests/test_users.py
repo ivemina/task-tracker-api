@@ -40,3 +40,26 @@ def test_login_wrong_password(client):
 def test_tasks_require_login(client):
     response = client.get("/tasks")
     assert response.status_code == 401
+
+def test_cors_allows_frontend_origin(client):
+    response = client.options(
+        "/tasks",
+        headers={
+            "Origin": "http://localhost:5173",
+            "Access-Control-Request-Method": "GET",
+            "Access-Control-Request-Headers": "Authorization",
+        },
+    )
+    assert response.status_code == 200
+    assert response.headers["access-control-allow-origin"] == "http://localhost:5173"
+
+
+def test_cors_blocks_unknown_origin(client):
+    response = client.options(
+        "/tasks",
+        headers={
+            "Origin": "http://evil.example.com",
+            "Access-Control-Request-Method": "GET",
+        },
+    )
+    assert "access-control-allow-origin" not in response.headers
